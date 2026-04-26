@@ -24,9 +24,15 @@ def load_exam_data(exam_file):
     return None
 
 def run_quiz():
-    # --- CSS DESIGN (Giữ nguyên giao diện đẹp của Nga) ---
+    # --- CSS DESIGN ---
     st.markdown("""
         <style>
+        /* Chỉnh nền toàn bộ trang thành màu xanh dương nhạt pastel */
+        .stApp {
+            background-color: #EAEAEA;
+        }
+
+        /* Giữ nguyên các ô nội dung màu trắng */
         div[data-testid="stVerticalBlock"] > div:has(div.stRadio) {
             background-color: white; border-radius: 20px; padding: 25px;
             margin-bottom: 20px; border: 1px solid #f0f2f6; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
@@ -43,7 +49,8 @@ def run_quiz():
 
     # --- KHỞI TẠO STATE ---
     if "quiz_step" not in st.session_state: st.session_state.quiz_step = 1
-    if "user_info" not in st.session_state: st.session_state.user_info = {}
+    if "user_info" not in st.session_state: 
+        st.session_state.user_info = {"full_name": "Guest", "phone": "Chưa cập nhật"}
     if "current_exam" not in st.session_state: st.session_state.current_exam = None
     if "user_answers" not in st.session_state: st.session_state.user_answers = {}
     if "start_time" not in st.session_state: st.session_state.start_time = None
@@ -52,24 +59,36 @@ def run_quiz():
 
     # STEP 1: THÔNG TIN
     if st.session_state.quiz_step == 1:
-        st.title("📝 LUYỆN TẬP TRẮC NGHIỆM")
+        st.title("PHÒNG THI TRẮC NGHIỆM")
         st.markdown("""<div class="rule-box"><h4>⚠️ QUY ĐỊNH:</h4><ul><li>Đề thi 24 câu - 30 phút.</li><li>Hệ thống tự nộp bài khi hết giờ và lưu kết quả vĩnh viễn.</li></ul></div>""", unsafe_allow_html=True)
         with st.form("info_form"):
-            name = st.text_input("Họ và tên thí sinh:")
+            # Lấy tên mặc định từ app.py nếu có
+            default_name = st.session_state.user_info.get("full_name", "")
+            if default_name == "Guest": default_name = ""
+            
+            input_name = st.text_input("Họ và tên thí sinh:", value=default_name)
             class_name = st.selectbox("Lớp:", ["12A1", "12A2", "12D1", "12D2", "12D3", "12C1", "12C3", "12B1", "12B2"])
+            
             if st.form_submit_button("VÀO PHÒNG THI"):
-                if name:
-                    st.session_state.user_info = {"id": str(uuid.uuid4())[:8], "name": name, "class": class_name}
+                if input_name:
+                    # CẬP NHẬT KEY 'full_name' ĐỂ ĐỒNG BỘ VỚI APP.PY
+                    st.session_state.user_info.update({
+                        "id": str(uuid.uuid4())[:8], 
+                        "full_name": input_name, 
+                        "class": class_name
+                    })
                     st.session_state.quiz_step = 2
                     st.rerun()
-                else: st.warning("Vui lòng nhập họ tên thí sinh nhé!")
+                else: 
+                    st.warning("Vui lòng nhập họ tên thí sinh nhé!")
 
     # STEP 2: LÀM BÀI
     elif st.session_state.quiz_step == 2:
+        # Sử dụng đúng key 'full_name'
         st.markdown(f"""<div class="user-info-banner">
-            <span>👤 <b>Thí sinh:</b> {st.session_state.user_info['name']}</span>
-            <span>🏫 <b>Lớp:</b> {st.session_state.user_info['class']}</span>
-            <span>🆔 <b>Mã số:</b> {st.session_state.user_info['id']}</span>
+            <span>👤 <b>Thí sinh:</b> {st.session_state.user_info.get('full_name', 'Ẩn danh')}</span>
+            <span>🏫 <b>Lớp:</b> {st.session_state.user_info.get('class', 'N/A')}</span>
+            <span>🆔 <b>Mã số:</b> {st.session_state.user_info.get('id', '0000')}</span>
         </div>""", unsafe_allow_html=True)
 
         if st.session_state.current_exam is None:
@@ -84,17 +103,14 @@ def run_quiz():
                         st.session_state.start_time = time.time()
                         st.rerun()
         else:
-            # Chỉ chạy đồng hồ nếu timer_active = True
             if st.session_state.timer_active:
                 st_autorefresh(interval=1000, key="quiz_timer")
             
             exam = st.session_state.current_exam
             remaining = int(1800 - (time.time() - st.session_state.start_time))
             
-            # Tự động nộp khi hết giờ
             if remaining <= 0 and not st.session_state.is_saved:
                 st.session_state.timer_active = False
-                # Xử lý lưu ngay lập tức ở đây (giống logic nút Có)
                 st.session_state.quiz_step = 3
                 st.rerun()
 
@@ -120,7 +136,6 @@ def run_quiz():
                     if ans: st.session_state.user_answers[idx] = ans
                     st.write("")
 
-            # DIALOG NỘP BÀI CẢI TIẾN
             if "confirm_sub_box" in st.session_state:
                 @st.dialog("Xác nhận nộp bài")
                 def confirm_finish():
@@ -128,23 +143,23 @@ def run_quiz():
                     c1, c2 = st.columns(2)
                     
                     if c1.button("CÓ, NỘP BÀI", use_container_width=True, type="primary"):
-                        # DÙNG LOCK ĐỂ CHẶN ĐA LUỒNG
                         with lock:
                             if not st.session_state.is_saved:
-                                # Dừng đồng hồ ngay
                                 st.session_state.timer_active = False 
                                 correct = sum(1 for i, q in enumerate(exam) if st.session_state.user_answers.get(i) == q['answer'])
                                 score = (correct / len(exam)) * 100
                                 try:
                                     supabase.table("student_results").insert({
-                                        "student_id": st.session_state.user_info['id'], "student_name": st.session_state.user_info['name'],
-                                        "class_name": st.session_state.user_info['class'], "exam_name": st.session_state.exam_name,
-                                        "score": score, "correct_answers": correct
+                                        "student_id": st.session_state.user_info.get('id'), 
+                                        "student_name": st.session_state.user_info.get('full_name'),
+                                        "class_name": st.session_state.user_info.get('class'), 
+                                        "exam_name": st.session_state.exam_name,
+                                        "score": score, 
+                                        "correct_answers": correct
                                     }).execute()
-                                    st.session_state.is_saved = True # Đã lưu thành công
+                                    st.session_state.is_saved = True
                                 except:
                                     pass
-                        # Chuyển trang và dọn dẹp trigger
                         st.session_state.quiz_step = 3
                         if "confirm_sub_box" in st.session_state: del st.session_state.confirm_sub_box
                         st.rerun()
@@ -162,11 +177,11 @@ def run_quiz():
         
         st.markdown(f"""<div style="background:white; padding:25px; border-radius:20px; text-align:center; border:2px solid #7d5fff; box-shadow: 0 10px 30px rgba(0,0,0,0.05);">
             <h2 style="color: #7d5fff; margin-bottom: 5px;">HOÀN THÀNH BÀI THI!</h2>
-            <p>Thí sinh: <b>{st.session_state.user_info['name']}</b> - Lớp: <b>{st.session_state.user_info['class']}</b></p>
+            <p>Thí sinh: <b>{st.session_state.user_info.get('full_name')}</b> - Lớp: <b>{st.session_state.user_info.get('class')}</b></p>
             <hr>
             <div style="display:flex; justify-content:space-around; margin-top:20px;">
                 <div><small>ĐIỂM SỐ</small><h1 style="color: #7d5fff; margin:0;">{(correct/len(exam))*100:.1f}</h1></div>
-                <div><small>CÂU ĐÚNG</small><h1 style="color: #2ecc71; margin:0;">{correct}/24</h1></div>
+                <div><small>CÂU ĐÚNG</small><h1 style="color: #2ecc71; margin:0;">{correct}/{len(exam)}</h1></div>
             </div>
         </div>""", unsafe_allow_html=True)
 
@@ -181,5 +196,8 @@ def run_quiz():
                 st.info(f"💡 {q['explanation']}")
 
         if st.button("🔄 LÀM ĐỀ KHÁC NGAY"):
+            # Giữ lại thông tin user để không phải nhập lại tên ở Step 1
+            kept_user = st.session_state.user_info
             for key in list(st.session_state.keys()): del st.session_state[key]
+            st.session_state.user_info = kept_user
             st.rerun()
